@@ -1,0 +1,12 @@
+solution1:
+  publisher_topic: "/star/chatter_out"
+  subscriber_topic: "/star/chatter_in"
+  publish_period_sec: 0.5
+  use_sim_time: True
+
+cartographer:
+  use_sim_time: True
+
+rviz_config: "config/rviz_config.rviz"
+
+bag_path: "data/tb_office_v02"
