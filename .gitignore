@@ -1,4 +1,5 @@
 data/*
 *.log
 .env
-README.MD
+*__pycache__*
+*.pyc 
