@@ -6,6 +6,8 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
+# Путь к python внутри venv
+venv_python = os.path.expanduser("~/ros2_jazzy/ros2_open3d_env/bin/python3")
 
 def load_yaml_config(path):
     with open(path, 'r') as f:
@@ -90,9 +92,18 @@ def generate_launch_description():
             executable='solution1',
             name='solution1',
             output='screen',
-            parameters=[node_params]
+            parameters=[node_params],
+                prefix=[venv_python, " "],  # Запуск внутри venv
         )
-
+        # === lidar trans node ===
+        lidar_transformer_node = Node(
+            package='star_solution',
+            executable='lidar_transformer',
+            name='lidar_transformer',
+            output='screen',
+            parameters=[node_params],
+                prefix=[venv_python, " "],  # Запуск внутри venv
+        )
         # === RViz node ===
         rviz_node = None
         if rviz_config:
@@ -108,7 +119,7 @@ def generate_launch_description():
         bag_process = None
         if bag_path:
             bag_process = TimerAction(
-                period=0.0,
+                period=2.0,
                 actions=[
                     ExecuteProcess(
                         cmd=['ros2', 'bag', 'play', bag_path, '--clock'],
@@ -119,7 +130,7 @@ def generate_launch_description():
             )
 
         # Собираем все действия
-        actions = [carto_node, occ_node, solution_node, static_tf]
+        actions = [carto_node, occ_node, solution_node]
         if rviz_node:
             actions.append(rviz_node)
         if bag_process:

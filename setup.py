@@ -2,6 +2,9 @@ from setuptools import setup
 from glob import glob
 import os
 
+import setuptools
+import numpy
+
 package_name = 'star_solution'
 
 # Prepare data_files list
@@ -29,7 +32,7 @@ setup(
     version='0.1.0',
     packages=[package_name],
     data_files=data_files,
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'numpy'],
     zip_safe=True,
     maintainer='Your Name',
     maintainer_email='you@example.com',
@@ -39,6 +42,7 @@ setup(
     entry_points={
         'console_scripts': [
             'solution1 = star_solution.solution1:main',
+            'lidar_transformer = star_solution.lidar_transformer:main'
             # tempo unused 
             # 'cloud_preproc_node = star_solution.cloud_preproc_node:main',
             # 'scan_builder_node = star_solution.scan_builder_node:main',

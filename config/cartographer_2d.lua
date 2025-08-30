@@ -6,7 +6,7 @@ options = {
   trajectory_builder = TRAJECTORY_BUILDER,
 
   map_frame = "map",
-  tracking_frame = "livox_frame",          -- если IMU на другом фрейме, укажи его
+  tracking_frame = "livox",          -- если IMU на другом фрейме, укажи его
   published_frame = "base_link",
   odom_frame = "odom",
   provide_odom_frame = true,
@@ -21,7 +21,7 @@ options = {
   num_subdivisions_per_laser_scan = 1,
   
   num_point_clouds = 1,                  -- подаём PointCloud2
-  lookup_transform_timeout_sec = 0.2,
+  lookup_transform_timeout_sec = 0.5,
   submap_publish_period_sec = 0.5,
   pose_publish_period_sec = 0.005,
   trajectory_publish_period_sec = 0.03,
@@ -42,10 +42,11 @@ TRAJECTORY_BUILDER_2D.max_z = 0.2      ---- чуть выше высоты ро�
 
 -- Дальность и поведение при пропусках
 TRAJECTORY_BUILDER_2D.min_range = 1.0 ---- 0.2 попробовать  (Mid-360 ближние точки часто шумные, можно отсечь ближе 1 м)
-TRAJECTORY_BUILDER_2D.max_range = 50.0 ----  25 попробовать (далеко (>50 м) мало полезно для 2D карты)
+TRAJECTORY_BUILDER_2D.max_range = 40.0 ----  25 попробовать (далеко (>50 м) мало полезно для 2D карты)
 TRAJECTORY_BUILDER_2D.missing_data_ray_length = 5.0 -- Когда луч "пропал"
 
-TRAJECTORY_BUILDER_2D.use_imu_data = true
+-- TRAJECTORY_BUILDER_2D.use_imu_data = true
+TRAJECTORY_BUILDER_2D.use_imu_data = false
 TRAJECTORY_BUILDER_2D.num_accumulated_range_data = 1
 -- Обязательно нужно задать, даже если PointCloud2
 -- TRAJECTORY_BUILDER_2D.num_subdivisions_per_laser_scan = 1
