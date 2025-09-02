@@ -1,48 +1,38 @@
 #!/usr/bin/env python3
-import os
-import time
 import math
-import rclpy
-from rclpy.node import Node
-from rclpy.duration import Duration
-from rclpy.time import Time
-
 import numpy as np
 
-from std_msgs.msg import Header
-from sensor_msgs.msg import PointCloud2, PointField
-import sensor_msgs_py.point_cloud2 as pc2
+import rclpy
+from rclpy.time import Time
+from rclpy.node import Node
+from rclpy.duration import Duration
 
+from std_msgs.msg import ColorRGBA
+from sensor_msgs.msg import PointCloud2
+import sensor_msgs_py.point_cloud2 as pc2
+from visualization_msgs.msg import MarkerArray, Marker
 from tf2_ros import Buffer, TransformListener, LookupException, ExtrapolationException
 
+from star_solution.utils import filter_points,largest_cluster_outliers, ransac_plane_outliers, project_points_to_plane, pattern_match, compare_clouds_by_centroid
 
 class LidarFilterNode(Node):
     def __init__(self):
         super().__init__("lidar_filter_node")
 
-        # Папка для сохранения
-        self.save_dir = os.path.expanduser("~/lidar_filtered_dumps")
-        os.makedirs(self.save_dir, exist_ok=True)
-
         # Подписка на топик лидара
-        self.subscription = self.create_subscription(
+        self.livox_subscription = self.create_subscription(
             PointCloud2,
             "/livox/lidar",
             self.listener_callback,
             10
         )
 
-        # Паблишер отфильтрованных данных
-        self.publisher = self.create_publisher(PointCloud2, "/lidar/filtered", 10)
+        # Топик для визуализации маркеров на карте
+        self.marker_publisher = self.create_publisher(MarkerArray, '/markers', 10)
 
         # TF listener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-
-        # Счётчик сообщений
-        self.msg_count = 0
-        self.last_filtered = None
-        self.last_pose = None
 
         # Параметры фильтрации
         self.intensity_min = 0
@@ -51,6 +41,14 @@ class LidarFilterNode(Node):
         self.range_max = 1.6
         self.z_min = -0.4
         self.z_max = 0.4
+
+        self.uniques_marker_centers = []
+        self.inlier_points_selected = []
+        self.metrics_selected = []
+        self.poses_selected = []
+
+        self.last_filtered = None
+        self.last_pose = None
 
     def listener_callback(self, msg: PointCloud2):
         # Фильтрация точек
@@ -70,13 +68,12 @@ class LidarFilterNode(Node):
 
         self.last_filtered = np.array(points, dtype=np.float32)
 
-        # Получаем 2D pose из TF (odom → base_link)
+        # Получаем 2D pose из TF
         try:
             tf = self.tf_buffer.lookup_transform(
-                'odom', 'base_link',
-                # Time.from_msg(msg.header.stamp),
+                'map', 'livox',
                 Time(),
-                timeout=Duration(seconds=0.2)
+                timeout=Duration(seconds=0.1)
             )
             tx = tf.transform.translation.x
             ty = tf.transform.translation.y
@@ -85,44 +82,82 @@ class LidarFilterNode(Node):
         except (LookupException, ExtrapolationException) as e:
             self.get_logger().warn(f"Не удалось получить pose из TF: {e}")
             return
-
-        # Публикация
-        header = Header()
-        header.stamp = msg.header.stamp
-        header.frame_id = msg.header.frame_id
-
-        fields = [
-            PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
-            PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
-            PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
-            PointField(name="intensity", offset=12, datatype=PointField.FLOAT32, count=1),
-        ]
-
-        filtered_msg = pc2.create_cloud(header, fields, self.last_filtered)
-        self.publisher.publish(filtered_msg)
-
-        # Сохранение каждые 20 сообщений (каждые ~2 секунды при 10Hz)
-        self.msg_count += 1
-        if self.msg_count % 20 == 0:
-            self.save_points()
-
-    def save_points(self):
-        if self.last_filtered is None or self.last_pose is None:
-            self.get_logger().warn("Нет данных для сохранения")
+        
+        # Ищем крест
+        filtered = filter_points(self.last_filtered, intensity_min=60, intensity_max=205, range_min=0.2, range_max=2.0,
+                             z_min=-0.5, z_max=0.5)
+        if filtered.shape[0] < 30:
             return
 
-        ts = int(time.time())
-        base_filename = os.path.join(self.save_dir, f"filtered_{ts}")
-        np.save(base_filename + ".npy", self.last_filtered)
+        labels, main_cluster, outliers = largest_cluster_outliers(filtered, eps=0.3, min_samples=20)
+        if main_cluster.shape[0] < 20:
+            return
 
-        with open(base_filename + ".pose.txt", "w") as f:
-            f.write(f"{self.last_pose[0]} {self.last_pose[1]} {self.last_pose[2]}\n")
+        plane_model, inliers, outliers = ransac_plane_outliers(main_cluster, distance_threshold=0.025)
+        if inliers.shape[0] < 10:
+            return
 
-        self.get_logger().info(
-            f"Сохранено облако #{self.msg_count}: {base_filename}.npy "
-            f"({self.last_filtered.shape[0]} точек, pose={self.last_pose})"
-        )
+        proj3d, proj2d, basis = project_points_to_plane(inliers, plane_model)
+        matched_points, percent, L_METRIC  = pattern_match(proj2d, d_a=0.01)
 
+        if percent > 50.0 and (L_METRIC < 0.06 and L_METRIC > 0.04):
+            self.inlier_points_selected.append(inliers)
+            self.metrics_selected.append(L_METRIC)
+            self.poses_selected.append(self.last_pose)    
+
+            if len(self.uniques_marker_centers) == 0:
+                points_A = self.inlier_points_selected[-1]
+                pose_A = self.poses_selected[-1]
+                
+                points_B = self.inlier_points_selected[-1] 
+                pose_B = self.poses_selected[-1]
+
+                centroid_A, centroid_B, dist_xy, dist_xyz = compare_clouds_by_centroid(points_A, pose_A, points_B, pose_B)
+                self.uniques_marker_centers.append(centroid_A)
+                
+            else:
+                points_A = self.inlier_points_selected[-2]
+                pose_A = self.poses_selected[-2]
+
+                points_B = self.inlier_points_selected[-1] 
+                pose_B = self.poses_selected[-1]
+                centroid_A, centroid_B, dist_xy, dist_xyz = compare_clouds_by_centroid(points_A, pose_A, points_B, pose_B)
+                if dist_xy > 1.5:
+                    self.uniques_marker_centers.append(centroid_B)
+        
+        self.publish_markers()
+
+    def publish_markers(self):
+        marker_array = MarkerArray()
+        t = self.get_clock().now().to_msg()
+        for idx, mark in enumerate(self.uniques_marker_centers):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = t
+            marker.ns = "markers"
+            marker.id = idx
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+
+            marker.pose.position.x = float(mark[0])
+            marker.pose.position.y = float(mark[1])
+            marker.pose.position.z = 0.2
+            marker.pose.orientation.x = 0.0
+            marker.pose.orientation.y = 0.0
+            marker.pose.orientation.z = 0.0
+            marker.pose.orientation.w = 1.0
+
+            marker.scale.x = 0.3
+            marker.scale.y = 0.3
+            marker.scale.z = 0.3
+
+            marker.color = ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0)
+
+            marker.lifetime.sec = 0
+            marker.lifetime.nanosec = 0
+            marker_array.markers.append(marker)
+        self.marker_publisher.publish(marker_array)
+        
     @staticmethod
     def quaternion_to_yaw(q):
         siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)

@@ -6,13 +6,9 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
-# Путь к python внутри venv
-venv_python = os.path.expanduser("~/ros2_jazzy/ros2_open3d_env/bin/python3")
-
 def load_yaml_config(path):
     with open(path, 'r') as f:
         return yaml.safe_load(f)
-
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('star_solution')
@@ -76,16 +72,6 @@ def generate_launch_description():
                 "-publish_period_sec", "1.0",
             ],
         )
-
-        static_tf = Node(
-            package="tf2_ros",
-            executable="static_transform_publisher",
-            name="livox_tf_pub",
-            arguments=["0", "0", "0.3",
-                    "-0.70711", "0.70711", "4.3298e-17", "4.3298e-17",
-                    "base_link", "livox_frame"]
-        )
-
         # === solution1 node ===
         solution_node = Node(
             package='star_solution',
@@ -93,16 +79,6 @@ def generate_launch_description():
             name='solution1',
             output='screen',
             parameters=[node_params],
-                prefix=[venv_python, " "],  # Запуск внутри venv
-        )
-        # === lidar trans node ===
-        lidar_transformer_node = Node(
-            package='star_solution',
-            executable='lidar_transformer',
-            name='lidar_transformer',
-            output='screen',
-            parameters=[node_params],
-                prefix=[venv_python, " "],  # Запуск внутри venv
         )
         # === RViz node ===
         rviz_node = None
@@ -114,7 +90,6 @@ def generate_launch_description():
                 output='screen',
                 arguments=['-d', rviz_config]
             )
-
         # === Bag playback ===
         bag_process = None
         if bag_path:
@@ -128,7 +103,6 @@ def generate_launch_description():
                     )
                 ]
             )
-
         # Собираем все действия
         actions = [carto_node, occ_node, solution_node]
         if rviz_node:
