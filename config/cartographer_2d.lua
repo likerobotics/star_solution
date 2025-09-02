@@ -7,12 +7,12 @@ options = {
 
   map_frame = "map",
   tracking_frame = "livox",          -- если IMU на другом фрейме, укажи его
-  published_frame = "base_link",
+  published_frame = "odom",
   odom_frame = "odom",
-  provide_odom_frame = true,
+  provide_odom_frame = false,
   publish_frame_projected_to_2d = true,
 
-  use_odometry = false,                  -- true если есть /odom
+  use_odometry = true,                  -- true если есть /odom
   use_nav_sat = false,
   use_landmarks = false,
 
